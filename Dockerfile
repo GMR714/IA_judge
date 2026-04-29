@@ -8,6 +8,7 @@ ENV PYTHONUNBUFFERED=1
 # Instala dependências do sistema e o binário do Ollama
 RUN apt-get update && apt-get install -y \
     curl \
+    zstd \
     && rm -rf /var/lib/apt/lists/* \
     && curl -fsSL https://ollama.com/install.sh | sh
 
