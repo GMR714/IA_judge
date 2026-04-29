@@ -10,118 +10,14 @@ from pydantic import BaseModel, Field
 from langchain_ollama import ChatOllama
 from langchain_core.messages import SystemMessage, HumanMessage
 from langgraph.graph import StateGraph, START, END
-from web3 import Web3
 
 import os
 import json
 import base64
 import re
 from dotenv import load_dotenv
-from web3.middleware import ExtraDataToPOAMiddleware
-from requests import Session
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
 
 load_dotenv()
-
-# -----------------
-# 1. Config Web3 — Resiliente com retry em TODAS as chamadas
-# -----------------
-WEB3_RPC_URL = os.getenv("RPC_URL", os.getenv("GANACHE_RPC_URL", "http://127.0.0.1:7545"))
-PRIVATE_KEY = os.getenv("PRIVATE_KEY")
-
-# Fallback RPCs para a Sepolia caso o principal falhe
-SEPOLIA_RPCS = [
-    WEB3_RPC_URL,
-    "https://ethereum-sepolia-rpc.publicnode.com",
-    "https://sepolia.drpc.org",
-    "https://rpc.sepolia.ethpandaops.io",
-    "https://rpc2.sepolia.org",
-    "https://1rpc.io/sepolia",
-]
-
-def _create_w3(rpc_url):
-    """Cria instancia Web3 com sessao HTTP resiliente."""
-    s = Session()
-    retry = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504],
-                  allowed_methods=["POST", "GET"])
-    s.mount('http://', HTTPAdapter(max_retries=retry))
-    s.mount('https://', HTTPAdapter(max_retries=retry))
-    provider = Web3.HTTPProvider(rpc_url, session=s, request_kwargs={'timeout': 60})
-    instance = Web3(provider)
-    instance.middleware_onion.inject(ExtraDataToPOAMiddleware, layer=0)
-    return instance
-
-w3 = _create_w3(WEB3_RPC_URL)
-
-def _reconnect_w3():
-    """Tenta reconectar usando RPCs de fallback."""
-    global w3
-    for rpc in SEPOLIA_RPCS:
-        try:
-            candidate = _create_w3(rpc)
-            candidate.eth.block_number  # teste rapido
-            w3 = candidate
-            print(f"   -> Reconectado via: {rpc}")
-            return True
-        except Exception:
-            continue
-    return False
-
-def web3_call(fn, *args, label="web3", max_retries=3, **kwargs):
-    """Wrapper generico que re-tenta qualquer chamada Web3 com reconexao."""
-    for attempt in range(1, max_retries + 1):
-        try:
-            return fn(*args, **kwargs)
-        except Exception as e:
-            err = str(e)
-            is_conn_err = any(k in err for k in ['10054', 'ConnectionReset', 'Connection aborted', 'RemoteDisconnected', 'ConnectionError', '403', 'Forbidden', 'HTTPError', '429', 'Too Many Requests', 'Unauthorized', 'Web3RPCError'])
-            if is_conn_err and attempt < max_retries:
-                wait = 4 * attempt
-                print(f"   -> [{label}] Conexao perdida (tentativa {attempt}/{max_retries}). Reconectando em {wait}s...")
-                time.sleep(wait)
-                _reconnect_w3()
-            else:
-                raise
-
-def send_tx_with_retry(signed_tx, label="TX", max_retries=3):
-    """Envia transacao com retry em caso de ConnectionResetError."""
-    for attempt in range(1, max_retries + 1):
-        try:
-            tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
-            print(f"   -> {label} enviada (tentativa {attempt}): {w3.to_hex(tx_hash)}")
-            receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=400)
-            return tx_hash, receipt
-        except Exception as e:
-            err_str = str(e)
-            is_conn_err = any(k in err_str for k in ['10054', 'ConnectionReset', 'Connection aborted', 'RemoteDisconnected', '403', 'Forbidden', 'HTTPError', '429', 'Too Many Requests', 'Unauthorized', 'Web3RPCError'])
-            if is_conn_err:
-                wait = 5 * attempt
-                print(f"   -> Conexao resetada ({label}). Retry {attempt}/{max_retries} em {wait}s...")
-                time.sleep(wait)
-                _reconnect_w3()
-                if attempt == max_retries:
-                    raise
-            elif 'already known' in err_str.lower() or 'nonce too low' in err_str.lower():
-                print(f"   -> {label} ja aceita pela rede. Aguardando recibo...")
-                if hasattr(signed_tx, 'hash'):
-                    receipt = w3.eth.wait_for_transaction_receipt(signed_tx.hash, timeout=400)
-                    return signed_tx.hash, receipt
-                raise
-            else:
-                raise
-
-# Load Contract Address and ABI after deploy
-TREASURY_CONTRACT_ADDRESS = None
-TREASURY_ABI = None
-try:
-    with open("contract_config.json", "r") as f:
-        cfg = json.load(f)
-        TREASURY_CONTRACT_ADDRESS = cfg.get("address")
-        TREASURY_ABI = cfg.get("abi")
-except FileNotFoundError:
-    print("AVISO: contract_config.json não encontrado. Execute deploy_vault.py primeiro!")
-
 
 # --------------------------
 # 2. Schema de Estado (Batch State)
@@ -393,85 +289,6 @@ def node_competition_judge(state: BatchState) -> dict:
         "events": events
     }
 
-def node_web3_executor(state: BatchState) -> dict:
-    winner = state.get("winner")
-    if not winner:
-        return {"tx_hash": "no_winner"}
-        
-    print(f"\n[WEB3 TRANSACTION] Premiando vencedor: {winner.proposal_id}")
-    
-    if not PRIVATE_KEY or not TREASURY_CONTRACT_ADDRESS:
-        print("Erro: Configuracoes Web3 ausentes.")
-        return {"tx_hash": "error_missing_config"}
-
-    try:
-        contract = w3.eth.contract(address=TREASURY_CONTRACT_ADDRESS, abi=TREASURY_ABI)
-        recipient = winner.recipient_wallet_address
-        amount = winner.grant_amount
-        
-        account = w3.eth.account.from_key(PRIVATE_KEY)
-
-        # Verifica saldo do cofre com retry
-        vault_balance = web3_call(w3.eth.get_balance, TREASURY_CONTRACT_ADDRESS, label="get_balance")
-        if vault_balance < amount:
-            print(f"   -> Cofre sem saldo ({vault_balance} WEI). Depositando 10 ETH automaticamente...")
-            fund_nonce = web3_call(w3.eth.get_transaction_count, account.address, label="get_nonce")
-            fund_tx = {
-                'to': TREASURY_CONTRACT_ADDRESS,
-                'value': w3.to_wei(10, 'ether'),
-                'gas': 30000,
-                'gasPrice': web3_call(lambda: w3.eth.gas_price, label="gas_price"),
-                'nonce': fund_nonce,
-                'chainId': web3_call(lambda: w3.eth.chain_id, label="chain_id")
-            }
-            signed_fund = w3.eth.account.sign_transaction(fund_tx, private_key=PRIVATE_KEY)
-            fund_hash, _ = send_tx_with_retry(signed_fund, label="Funding")
-            print(f"   -> Cofre financiado! Hash: {w3.to_hex(fund_hash)}")
-
-        # Submeter grant ao vencedor
-        nonce = web3_call(w3.eth.get_transaction_count, account.address, label="get_nonce")
-        chain_id = web3_call(lambda: w3.eth.chain_id, label="chain_id")
-        gas_price = web3_call(lambda: w3.eth.gas_price, label="gas_price")
-        
-        tx = contract.functions.submitGrant(recipient, amount).build_transaction({
-            'chainId': chain_id,
-            'from': account.address,
-            'gasPrice': gas_price,
-            'nonce': nonce
-        })
-
-        gas_est = web3_call(w3.eth.estimate_gas, tx, label="estimate_gas")
-        tx['gas'] = int(gas_est * 1.5)
-
-        signed_txn = w3.eth.account.sign_transaction(tx, private_key=PRIVATE_KEY)
-        tx_hash, receipt = send_tx_with_retry(signed_txn, label="SubmitGrant")
-        hash_hex = w3.to_hex(tx_hash)
-        print(f"   -> Proposta Submetida no Cofre!")
-        
-        # Extrair ID da Proposta para o frontend assinar via MetaMask
-        prop_id = None
-        try:
-            logs = contract.events.ProposalSubmitted().process_receipt(receipt)
-            if logs:
-                prop_id = logs[0]['args']['id']
-                print(f"   -> Proposta on-chain ID: {prop_id} -- aguardando assinatura via MetaMask")
-        except Exception as e:
-            print(f"   -> Aviso ao extrair ID: {e}")
-        
-        events = [{
-            "sender": "Cofre Ipe City",
-            "message": f"Proposta submetida no cofre! TX: {hash_hex}",
-            "type": "success",
-            "proposal_onchain_id": prop_id,
-            "tx_hash": hash_hex
-        }]
-        
-        return {"tx_hash": hash_hex, "events": events}
-    except Exception as e:
-        print(f"Erro Web3: {e}")
-        traceback.print_exc()
-        events = [{"sender": "Cofre Ipe City", "message": f"ERRO NA TRANSACAO: {e}", "type": "error"}]
-        return {"tx_hash": "error", "events": events}
 
 # --------------------------
 # 6. Grafo de Competição
@@ -482,15 +299,13 @@ workflow.add_node("auditor", node_auditor_batch)
 workflow.add_node("community", node_community_batch)
 workflow.add_node("finance", node_finance_batch)
 workflow.add_node("judge", node_competition_judge)
-workflow.add_node("web3", node_web3_executor)
 
 # Fluxo Linear de Competição (mas agentes podem rodar em paralelo se configurado)
 workflow.add_edge(START, "auditor")
 workflow.add_edge("auditor", "community")
 workflow.add_edge("community", "finance")
 workflow.add_edge("finance", "judge")
-workflow.add_edge("judge", "web3")
-workflow.add_edge("web3", END)
+workflow.add_edge("judge", END)
 
 app = workflow.compile()
 

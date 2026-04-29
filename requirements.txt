@@ -2,10 +2,8 @@ requests==2.31.0
 langchain
 langchain-ollama
 langgraph
-web3
 pydantic
 python-dotenv
-py-solc-x
 fastapi
 uvicorn
 jinja2
