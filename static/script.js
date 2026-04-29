@@ -12,7 +12,6 @@ const headerStatus   = document.getElementById('header-status');
 const statusDot      = document.getElementById('status-dot');
 const typingIndicator= document.getElementById('typing-indicator');
 const typingName     = document.getElementById('typing-name');
-const idleText       = document.getElementById('idle-text');
 const tabTournament  = document.getElementById('tab-tournament');
 const tabGraph       = document.getElementById('tab-graph');
 
@@ -330,7 +329,6 @@ function setStatus(text, active = false) {
 }
 
 function showTyping(name) {
-    idleText.style.display = 'none';
     typingIndicator.style.display = 'flex';
     typingName.textContent = name;
     setStatus(`${name} analisando...`, true);
@@ -338,7 +336,6 @@ function showTyping(name) {
 
 function hideTyping() {
     typingIndicator.style.display = 'none';
-    idleText.style.display = '';
 }
 
 // --- Feed Message Functions ---
