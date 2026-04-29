@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ipe City — Painel de Governança DAO</title>
+    <meta name="description" content="Motor de consenso multi-agente da Ipe City. Avaliação e votação de propostas via IA descentralizada.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="static/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
+</head>
+<body>
+
+    <!-- Top Navigation Bar -->
+    <header class="topbar">
+        <div class="topbar-brand">
+            <div class="brand-logo">🌳</div>
+            <div class="brand-info">
+                <h1>Ipe City DAO</h1>
+                <span class="brand-sub">Motor de Consenso Multi-Agente</span>
+            </div>
+        </div>
+        <div class="topbar-status">
+            <span class="status-dot" id="status-dot"></span>
+            <span id="header-status">Aguardando Início</span>
+        </div>
+        <div class="topbar-mode-switcher">
+            <button class="mode-btn active" id="tab-tournament">🏆 Torneio</button>
+            <button class="mode-btn" id="tab-graph">🗣️ Deliberação</button>
+            <button class="mode-btn" id="tab-new">📝 Nova Proposta</button>
+        </div>
+        <button id="btn-metamask" class="btn-metamask" onclick="connectMetaMask()">
+            <span>🦊</span> Conectar MetaMask
+        </button>
+    </header>
+
+    <div class="dashboard">
+
+        <!-- Left Column: Proposals Panel -->
+        <section class="proposals-panel">
+            <div class="panel-header">
+                <h2>📋 Propostas</h2>
+                <span class="badge" id="proposal-count">0</span>
+            </div>
+            <div class="proposals-list" id="proposal-list">
+                <!-- Cards inserted by JS -->
+            </div>
+            
+            <div id="new-proposal-form" style="display: none; padding: 15px; display: flex; flex-direction: column; gap: 10px; background: rgba(255,255,255,0.02); border-radius: 8px;">
+                <input type="text" id="np-id" placeholder="ID (ex: IPE_999)" style="padding: 10px; border-radius: 5px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.2); color: var(--text-primary);">
+                <input type="text" id="np-amount" placeholder="Valor WEI (ex: 2500)" style="padding: 10px; border-radius: 5px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.2); color: var(--text-primary);">
+                <input type="url" id="np-github" placeholder="Link do GitHub para Análise (opcional)" style="padding: 10px; border-radius: 5px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.2); color: var(--text-primary);">
+                <textarea id="np-intent" placeholder="Explique a intenção do projeto/MVP..." rows="3" style="padding: 10px; border-radius: 5px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.2); color: var(--text-primary); resize: vertical;"></textarea>
+                <textarea id="np-text" placeholder="Escreva a descrição da proposta..." rows="6" style="padding: 10px; border-radius: 5px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.2); color: var(--text-primary); resize: vertical;"></textarea>
+                <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 5px;">*A carteira do destinatário será a padrão de testes.</div>
+                <button id="np-submit" class="btn-start" style="margin-top: 5px;">SUBMETER NOVA PROPOSTA</button>
+            </div>
+            <div class="panel-footer" id="panel-footer-controls">
+                <button id="btn-run" class="btn-start" style="flex: 1;">
+                    <span class="btn-icon">▶</span>
+                    <span class="btn-label">INICIAR DEBATE</span>
+                </button>
+                <button id="btn-debug" class="btn-start" style="flex: 1; background: rgba(239, 68, 68, 0.2); border-color: rgba(239, 68, 68, 0.4); margin-left: 10px;">
+                    <span class="btn-icon">🐛</span>
+                    <span class="btn-label">DEBUG</span>
+                </button>
+            </div>
+        </section>
+
+        <!-- Right Column: Debate Feed (Chat UI) -->
+        <section class="debate-panel">
+            <div class="panel-header">
+                <h2>💬 Debate dos Agentes</h2>
+                <div class="typing-status" id="typing-indicator" style="display:none;">
+                    <span class="pulse-dot"></span>
+                    <span id="typing-name">Agente</span> está analisando...
+                </div>
+                <span id="idle-text" class="idle-label">Sessão inativa</span>
+            </div>
+            <div class="feed" id="chat-box">
+                <div class="feed-empty">
+                    <div class="feed-empty-icon">⚖️</div>
+                    <p>O debate dos agentes aparecerá aqui.</p>
+                    <p>Selecione um modo e inicie o processo.</p>
+                </div>
+            </div>
+        </section>
+
+    </div>
+
+    <script src="static/script.js?v=5"></script>
+</body>
+</html>
