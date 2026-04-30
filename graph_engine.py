@@ -77,6 +77,16 @@ judge_llm = ChatOpenAI(
     temperature=0.1
 )
 
+def parse_llm_json(llm_instance, msgs, pydantic_model):
+    """Invoca o LLM e parseia JSON robusto, removendo markdown code fences."""
+    response = llm_instance.invoke(msgs)
+    raw = response.content if hasattr(response, 'content') else str(response)
+    # Remove markdown code fences (```json ... ``` ou ``` ... ```)
+    cleaned = re.sub(r'^\s*```(?:json)?\s*', '', raw, flags=re.MULTILINE)
+    cleaned = re.sub(r'\s*```\s*$', '', cleaned, flags=re.MULTILINE)
+    cleaned = cleaned.strip()
+    return pydantic_model.model_validate_json(cleaned)
+
 # --------------------------
 # 5. Nodes da Malha Fechada (State Machine)
 # --------------------------
@@ -189,8 +199,9 @@ Pontuação: 0-4 = Web2 disfarçado ou impossível em 8 dias. 5-7 = técnico mas
         HumanMessage(content=f"Proposta para avaliação:\n{state['proposal_text']}\nIntenção/MVP: {state.get('intent', 'N/A')}\nGitHub URL para Análise: {state.get('github_url', 'N/A')}\n\nDADOS DO GITHUB (Código Real):\n{repo_data}\n\nHistórico do debate:\n{state.get('debate_history', [])}")
     ]
     try:
-        res = llm.with_structured_output(EvaluationResult).invoke(msgs)
+        res = parse_llm_json(llm, msgs, EvaluationResult)
     except Exception as e:
+        print(f"Erro parse auditor: {e}")
         res = EvaluationResult(score=5.0, feedback="Erro de formatação LLM. Voto neutro forçado.")
         
     events = [{"sender": "Auditor de Projeto", "message": f"Nota para {state['proposal_id']}: {res.score}. Feedback: {res.feedback}", "type": "chat"}]
@@ -209,8 +220,9 @@ Pontuação: 0-4 = Nenhuma utilidade comunitária ou não alinhado com network s
         HumanMessage(content=f"Proposta para avaliação:\n{state['proposal_text']}\n\nHistórico do debate:\n{state.get('debate_history', [])}")
     ]
     try:
-        res = llm.with_structured_output(EvaluationResult).invoke(msgs)
+        res = parse_llm_json(llm, msgs, EvaluationResult)
     except Exception as e:
+        print(f"Erro parse community: {e}")
         res = EvaluationResult(score=5.0, feedback="Erro de formatação LLM. Voto neutro forçado.")
         
     events = [{"sender": "Embaixador Comunitário", "message": f"Nota para {state['proposal_id']}: {res.score}. Feedback: {res.feedback}", "type": "chat"}]
@@ -232,8 +244,9 @@ Pontuação: 0-4 = sobrevalorizado, não sustentável ou escopo irrealista. 5-7 
         HumanMessage(content=f"Proposta para avaliação:\n{state['proposal_text']}\n\nHistórico do debate:\n{state.get('debate_history', [])}")
     ]
     try:
-        res = llm.with_structured_output(EvaluationResult).invoke(msgs)
+        res = parse_llm_json(llm, msgs, EvaluationResult)
     except Exception as e:
+        print(f"Erro parse finance: {e}")
         res = EvaluationResult(score=5.0, feedback="Erro de formatação LLM. Voto neutro forçado.")
         
     events = [{"sender": "Analista Financeiro", "message": f"Nota para {state['proposal_id']}: {res.score}. Feedback: {res.feedback}", "type": "chat"}]
@@ -309,9 +322,8 @@ def node_moderator(state: AgentState) -> dict:
     {summary_text}
     """
     
-    structured_judge = judge_llm.with_structured_output(ModeratorDecision)
     try:
-        res = structured_judge.invoke(extraction_prompt)
+        res = parse_llm_json(judge_llm, extraction_prompt, ModeratorDecision)
         res.summary = summary_text  # Substitui o summary do JSON pelo texto legivel completo!
     except Exception as e:
         # Fallback de segurança se o JSON falhar mesmo assim

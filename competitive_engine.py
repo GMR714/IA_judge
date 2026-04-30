@@ -78,6 +78,17 @@ judge_llm = ChatOpenAI(
     api_key=OLLAMA_API_KEY,
     temperature=0.1
 )
+
+def parse_llm_json(llm_instance, msgs, pydantic_model):
+    """Invoca o LLM e parseia JSON robusto, removendo markdown code fences."""
+    response = llm_instance.invoke(msgs)
+    raw = response.content if hasattr(response, 'content') else str(response)
+    # Remove markdown code fences (```json ... ``` ou ``` ... ```)
+    cleaned = re.sub(r'^\s*```(?:json)?\s*', '', raw, flags=re.MULTILINE)
+    cleaned = re.sub(r'\s*```\s*$', '', cleaned, flags=re.MULTILINE)
+    cleaned = cleaned.strip()
+    return pydantic_model.model_validate_json(cleaned)
+
 # --------------------------
 # 5. Nodes da Competição
 # --------------------------
@@ -175,7 +186,7 @@ De nota 0 para Web2 puro sem on-chain. Penalize fortemente aplicações AWS/SQL/
             SystemMessage(content=SYSTEM_BASE + papel_auditor),
             HumanMessage(content=f"Proposta para avaliação técnica:\n{prop.proposal_text}\nIntenção/MVP: {prop.intent}\nGitHub URL: {prop.github_url}\n\nDADOS DO GITHUB (Código Real):\n{repo_data}")
         ]
-        res = llm.with_structured_output(EvaluationResult).invoke(msgs)
+        res = parse_llm_json(llm, msgs, EvaluationResult)
         prop.auditor_score = res.score
         prop.auditor_feedback = res.feedback
         updated_proposals.append(prop)
@@ -197,7 +208,7 @@ Penalize projetos sem utilidade comunitária clara ou não alinhados com network
             SystemMessage(content=SYSTEM_BASE + papel_community),
             HumanMessage(content=f"Proposta para avaliação comunitária:\n{prop.proposal_text}\nIntenção/MVP: {prop.intent}\nGitHub URL: {prop.github_url}")
         ]
-        res = llm.with_structured_output(EvaluationResult).invoke(msgs)
+        res = parse_llm_json(llm, msgs, EvaluationResult)
         prop.community_score = res.score
         prop.community_feedback = res.feedback
         updated_proposals.append(prop)
@@ -221,7 +232,7 @@ Penalize projetos com escopo irrealista para 8 dias ou sem modelo econômico cla
             SystemMessage(content=SYSTEM_BASE + papel_finance),
             HumanMessage(content=f"Proposta para avaliação pessoal:\n{prop.proposal_text}\nIntenção/MVP: {prop.intent}\nGitHub URL: {prop.github_url}")
         ]
-        res = llm.with_structured_output(EvaluationResult).invoke(msgs)
+        res = parse_llm_json(llm, msgs, EvaluationResult)
         prop.finance_score = res.score
         prop.finance_feedback = res.feedback
         updated_proposals.append(prop)
@@ -260,7 +271,7 @@ def node_competition_judge(state: BatchState) -> dict:
     }}
     """
     
-    res = judge_llm.with_structured_output(CompetitionDecision).invoke(prompt)
+    res = parse_llm_json(judge_llm, prompt, CompetitionDecision)
     
     winner = next((p for p in state['proposals'] if p.proposal_id == res.winner_id), None)
     
