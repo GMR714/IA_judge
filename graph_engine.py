@@ -3,7 +3,7 @@ import time
 import traceback
 from typing import TypedDict, Annotated, List, Literal
 from pydantic import BaseModel, Field
-from langchain_ollama import ChatOllama
+from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
 from langgraph.graph import StateGraph, START, END
 
@@ -59,12 +59,23 @@ class ModeratorDecision(BaseModel):
     summary: str = Field(description="Ata resumindo o debate.")
 
 # --------------------------
-# 4. Configuração LLM (LangChain + Ollama)
+# 4. Configuração LLM (Ollama Cloud via OpenAI-Compatible API)
 # --------------------------
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-OLLAMA_MODEL    = os.getenv("OLLAMA_MODEL",    "minimax-m2.7:cloud")
-llm = ChatOllama(model=OLLAMA_MODEL, base_url=OLLAMA_BASE_URL, temperature=0.6)
-judge_llm = ChatOllama(model=OLLAMA_MODEL, base_url=OLLAMA_BASE_URL, temperature=0.1)
+OLLAMA_API_KEY  = os.getenv("OLLAMA_API_KEY", "")
+OLLAMA_MODEL    = os.getenv("OLLAMA_MODEL", "minimax-m2.7:cloud")
+
+llm = ChatOpenAI(
+    model=OLLAMA_MODEL,
+    base_url="https://ollama.com/v1",
+    api_key=OLLAMA_API_KEY,
+    temperature=0.6
+)
+judge_llm = ChatOpenAI(
+    model=OLLAMA_MODEL,
+    base_url="https://ollama.com/v1",
+    api_key=OLLAMA_API_KEY,
+    temperature=0.1
+)
 
 # --------------------------
 # 5. Nodes da Malha Fechada (State Machine)

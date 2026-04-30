@@ -1,6 +1,7 @@
 requests==2.31.0
 langchain
 langchain-ollama
+langchain-openai
 langgraph
 pydantic
 python-dotenv
